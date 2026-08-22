@@ -1,0 +1,237 @@
+-- ================================================
+-- Blox Fruits: Auto Chest (Cloud Hub - Fixed Edition)
+-- ระบบ: บิน BodyVelocity + ESP สีดำ + UI ครบ + แก้บินค้าง 100%
+-- ================================================
+
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+_G.AutoChest = false
+_G.ChestESP = false
+_G.FlySpeed = 280
+
+-- ระบบบิน (BodyVelocity) แบบเคลียร์ค่าปลอดภัย
+local bv, bg
+local function startFlight()
+    local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if root then
+        if not bv then
+            bv = Instance.new("BodyVelocity", root)
+            bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+            bv.Velocity = Vector3.new(0, 0, 0)
+        end
+        if not bg then
+            bg = Instance.new("BodyGyro", root)
+            bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+            bg.CFrame = root.CFrame
+        end
+    end
+end
+
+local function stopFlight()
+    if bv then bv:Destroy(); bv = nil end
+    if bg then bg:Destroy(); bg = nil end
+end
+
+-- ระบบ Anti-Seat & NoClip (ทำงานเฉพาะตอนเปิด Auto Chest เท่านั้น)
+RunService.Stepped:Connect(function()
+    if LocalPlayer.Character and _G.AutoChest then
+        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        
+        -- นั่งเก้าอี้กระโดดลุกทันที
+        if hum and hum.Sit then
+            hum.Sit = false
+            hum.Jump = true
+        end
+        
+        -- NoClip ทะลุกำแพงขณะบิน
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then 
+                part.CanCollide = false 
+            end
+        end
+    end
+end)
+
+-- ฟังก์ชันดึงรายการกล่องทั้งหมด และเรียงลำดับตามระยะทางที่ใกล้ที่สุด
+local function getChestsSorted()
+    local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return {} end
+    
+    local chests = {}
+    for _, v in pairs(workspace:GetDescendants()) do
+        if v:IsA("Part") and v.Name:find("Chest") and v:FindFirstChild("TouchInterest") then
+            local dist = (v.Position - root.Position).Magnitude
+            table.insert(chests, {part = v, distance = dist})
+        end
+    end
+    
+    table.sort(chests, function(a, b)
+        return a.distance < b.distance
+    end)
+    
+    return chests
+end
+
+-- ลูปการเก็บกล่องอัจฉริยะ (แก้บินค้าง)
+task.spawn(function()
+    while true do
+        task.wait(0.05)
+        if _G.AutoChest then
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            
+            if root then
+                startFlight()
+                
+                local chestList = getChestsSorted()
+                if #chestList > 0 then
+                    local targetData = chestList[1]
+                    local targetChest = targetData.part
+                    
+                    local startTime = tick()
+                    while _G.AutoChest and targetChest and targetChest.Parent and targetChest:FindFirstChild("TouchInterest") do
+                        task.wait()
+                        
+                        -- กันค้าง: ถ้านานเกิน 8 วินาทีแล้วไม่ถึงกล่อง ให้เปลี่ยนไปหากล่องอื่นทันที
+                        if tick() - startTime > 8 then break end
+                        
+                        root = char:FindFirstChild("HumanoidRootPart")
+                        if not root then break end
+                        
+                        local currentDist = (targetChest.Position - root.Position).Magnitude
+                        
+                        -- บินไปหาตำแหน่งกล่อง
+                        if bv and bg then
+                            local direction = (targetChest.Position - root.Position).Unit
+                            bv.Velocity = direction * _G.FlySpeed
+                            bg.CFrame = CFrame.new(root.Position, targetChest.Position)
+                        end
+                        
+                        -- เมื่อถึงระยะเก็บกล่อง (ระยะ 15 studs)
+                        if currentDist <= 15 then
+                            if bv then bv.Velocity = Vector3.new(0, 0, 0) end
+                            firetouchinterest(root, targetChest, 0)
+                            task.wait(0.05)
+                            firetouchinterest(root, targetChest, 1)
+                            task.wait(0.1)
+                            break
+                        end
+                    end
+                else
+                    -- ถ้าไม่มีกล่อง หยุดบินลอยตัวนิ่งๆ
+                    if bv then bv.Velocity = Vector3.new(0, 0, 0) end
+                end
+            end
+        else
+            stopFlight()
+        end
+    end
+end)
+
+-- ================= UI (Cloud Hub - Dark Theme) =================
+local ScreenGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
+local MainFrame = Instance.new("Frame", ScreenGui)
+MainFrame.Size = UDim2.new(0, 180, 0, 200)
+MainFrame.Position = UDim2.new(0.02, 0, 0.3, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+
+-- หัวข้อ Cloud Hub
+local Title = Instance.new("TextLabel", MainFrame)
+Title.Size = UDim2.new(0, 180, 0, 40)
+Title.Text = "Cloud Hub"
+Title.TextSize = 22
+Title.TextColor3 = Color3.new(1, 1, 1)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.SourceSansBold
+
+-- ปุ่มพับจอ (Minimize)
+local MinBtn = Instance.new("TextButton", MainFrame)
+MinBtn.Size = UDim2.new(0, 30, 0, 30); MinBtn.Position = UDim2.new(0, 145, 0, 5)
+MinBtn.Text = "-"; MinBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70); MinBtn.TextColor3 = Color3.new(1,1,1)
+
+local AutoBtn = Instance.new("TextButton", MainFrame)
+AutoBtn.Size = UDim2.new(0, 160, 0, 30); AutoBtn.Position = UDim2.new(0, 10, 0, 50); AutoBtn.Text = "Auto Chest: OFF"
+
+local SpeedLabel = Instance.new("TextLabel", MainFrame)
+SpeedLabel.Size = UDim2.new(0, 160, 0, 20); SpeedLabel.Position = UDim2.new(0, 10, 0, 90)
+SpeedLabel.Text = "Speed: ".._G.FlySpeed; SpeedLabel.BackgroundTransparency = 1; SpeedLabel.TextColor3 = Color3.new(1,1,1)
+
+local SpeedUp = Instance.new("TextButton", MainFrame)
+SpeedUp.Size = UDim2.new(0, 75, 0, 30); SpeedUp.Position = UDim2.new(0, 10, 0, 115); SpeedUp.Text = "+"
+local SpeedDown = Instance.new("TextButton", MainFrame)
+SpeedDown.Size = UDim2.new(0, 75, 0, 30); SpeedDown.Position = UDim2.new(0, 95, 0, 115); SpeedDown.Text = "-"
+
+local EspBtn = Instance.new("TextButton", MainFrame)
+EspBtn.Size = UDim2.new(0, 160, 0, 30); EspBtn.Position = UDim2.new(0, 10, 0, 155); EspBtn.Text = "ESP: OFF"
+
+-- ระบบปุ่มพับเก็บ
+local isCollapsed = false
+MinBtn.MouseButton1Click:Connect(function()
+    isCollapsed = not isCollapsed
+    MainFrame.Size = isCollapsed and UDim2.new(0, 180, 0, 40) or UDim2.new(0, 180, 0, 200)
+    AutoBtn.Visible = not isCollapsed
+    SpeedLabel.Visible = not isCollapsed
+    SpeedUp.Visible = not isCollapsed
+    SpeedDown.Visible = not isCollapsed
+    EspBtn.Visible = not isCollapsed
+    MinBtn.Text = isCollapsed and "+" or "-"
+end)
+
+-- ฟังก์ชันปุ่มต่างๆ
+AutoBtn.MouseButton1Click:Connect(function()
+    _G.AutoChest = not _G.AutoChest
+    AutoBtn.Text = _G.AutoChest and "Auto Chest: ON" or "Auto Chest: OFF"
+    if not _G.AutoChest then stopFlight() end
+end)
+
+SpeedUp.MouseButton1Click:Connect(function() _G.FlySpeed += 20; SpeedLabel.Text = "Speed: ".._G.FlySpeed end)
+SpeedDown.MouseButton1Click:Connect(function() _G.FlySpeed -= 20; SpeedLabel.Text = "Speed: ".._G.FlySpeed end)
+
+EspBtn.MouseButton1Click:Connect(function()
+    _G.ChestESP = not _G.ChestESP
+    EspBtn.Text = _G.ChestESP and "ESP: ON" or "ESP: OFF"
+    if not _G.ChestESP then
+        for _,v in pairs(workspace:GetDescendants()) do if v.Name == "ChestESP" then v:Destroy() end end
+    end
+end)
+
+-- ระบบ ESP สีดำ อัจฉริยะ
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if _G.ChestESP then
+            -- 1. กวาดลบ ESP เก่าที่กล่องถูกเก็บไปแล้วออก
+            for _, esp in pairs(workspace:GetDescendants()) do
+                if esp.Name == "ChestESP" and esp:IsA("BillboardGui") then
+                    local parentPart = esp.Parent
+                    if not parentPart or not parentPart.Parent or not parentPart:FindFirstChild("TouchInterest") then
+                        esp:Destroy()
+                    end
+                end
+            end
+
+            -- 2. สร้าง ESP ให้กับกล่องเกิดใหม่
+            for _, v in pairs(workspace:GetDescendants()) do
+                if v:IsA("Part") and v.Name:find("Chest") and v:FindFirstChild("TouchInterest") and not v:FindFirstChild("ChestESP") then
+                    local bill = Instance.new("BillboardGui", v)
+                    bill.Name = "ChestESP"
+                    bill.AlwaysOnTop = true
+                    bill.Size = UDim2.new(0, 100, 0, 30)
+                    
+                    local label = Instance.new("TextLabel", bill)
+                    label.Size = UDim2.new(1, 0, 1, 0)
+                    label.BackgroundTransparency = 1
+                    label.TextColor3 = Color3.fromRGB(0, 0, 0)
+                    label.TextStrokeColor3 = Color3.fromRGB(255, 255, 255)
+                    label.TextStrokeTransparency = 0
+                    label.Text = v.Name
+                end
+            end
+        end
+    end
+end)
